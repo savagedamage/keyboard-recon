@@ -3,3 +3,10 @@ __pycache__/
 .venv/
 node_modules/
 .DS_Store
+
+# PlatformIO / Arduino build artifacts
+.pio/
+.pioenvs/
+.idea/
+.vscode/
+*.bak
