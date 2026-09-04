@@ -1,5 +1,8 @@
 # Keyboard Recon — BLE Identity Scanner
 
+[![CI](https://github.com/savagedamage/keyboard-recon/actions/workflows/ci.yml/badge.svg)](https://github.com/savagedamage/keyboard-recon/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 **Find out what a wireless keyboard calls itself before you ever interact with it.**
 
 A keyboard is a computer: an MCU, firmware, a radio, an update path. Hosts trust
@@ -16,12 +19,13 @@ identity, take the host-side follow-up with the companion
 methodology (GATT tree, PnP ID vs manufacturer-name spoof check, idle-injection
 test).
 
-> **Current status: alpha firmware.** Written against the standard ESP32 Arduino
-> BLE API for the `esp32-s3-devkitc-1` board via PlatformIO (see [Build](#build));
-> a build was attempted in the authoring environment but could not be completed
-> there because PlatformIO's package-manager mirror was unreachable — so it is
-> shipped without a locally-verified build. Confirm it compiles and flashes in
-> your environment before relying on it. See [Hardware scope and limits](#hardware-scope-and-limits).
+> **Current status: alpha firmware.** The decision logic in
+> [`include/ble_logic.hpp`](include/ble_logic.hpp) is pure, host-testable C++
+> covered by a native unit-test suite, and the full firmware build plus those
+> tests run in GitHub Actions CI (see [Build and CI](#build-and-ci)). The ESP32
+> sketch (`src/ble_scanner.ino`) targets the standard Arduino BLE API and is
+> compiled by CI for the `esp32-s3-devkitc-1` board; confirm it flashes on your
+> own hardware. See [Hardware scope and limits](#hardware-scope-and-limits).
 
 ## Why this exists
 
@@ -51,16 +55,23 @@ first move.
 | Company ID | Decodes a small set of well-known SIG Company IDs; everything else prints as a raw `CID 0xXXXX` to resolve on the SIG list. |
 | Optional filter | Set `NAME_FILTER` to only report devices whose advertised name contains a substring. |
 
-## Build
+## Build and CI
 
 Requires [PlatformIO](https://platformio.org) (or the Arduino IDE with the
 Espressif ESP32 core).
 
 ```bash
-pio run             # compile for esp32-s3-devkitc-1
+pio run             # compile the firmware for esp32-s3-devkitc-1
 pio run -t upload   # flash over USB (USB CDC on boot enabled)
 pio device monitor  # serial @ 115200
+pio test -e native  # run the host-native logic unit tests (Unity)
 ```
+
+The firmware sketch (`src/ble_scanner.ino`) and the pure logic
+(`include/ble_logic.hpp`) are built and tested in GitHub Actions CI — see the
+badge above. The logic is decoupled from the BLE/hardware layer so it runs as an
+ordinary host test; the ESP32 build is verified in CI because PlatformIO's tool
+package mirror was unreachable from the authoring environment.
 
 Then power on the keyboard and watch the stream. Each window ends with a summary
 line (`adverts this window` / `unique this session`).

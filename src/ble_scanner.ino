@@ -26,96 +26,75 @@
 // State: kept only in RAM. A reset clears the "seen" set, so a fresh keyboard
 // powers on and gets flagged [NEW] again.
 // ---------------------------------------------------------------------------
+//
+// All decision logic (Company ID decode, name filtering, what/when to report,
+// per-address state, per-session uniqueness) lives in include/ble_logic.hpp as
+// pure C++ so it can be unit-tested on a host. This sketch is a thin BLE-callback
+// shell: it gathers the advertisement fields and calls ble_recon, then prints.
+// ---------------------------------------------------------------------------
 
 #include <BLEDevice.h>
 #include <BLEScan.h>
 #include <BLEAdvertisedDevice.h>
 #include <map>
 #include <string>
-#include <cctype>
+
+#include "ble_logic.hpp"
 
 // Optional: only report devices whose advertised name contains this substring.
 // Leave empty ("") to see everything. Matched case-insensitively.
 const char* NAME_FILTER = "";
 
-// Bluetooth SIG Company IDs are the first two bytes (little-endian) of
-// manufacturer-specific data. Only a few are decoded here; everything else is
-// printed as a raw CID so you can resolve it against the live
-// https://www.bluetooth.com/specifications/assigned-numbers/company-identifiers
-// list. (0xFFFF = the SIG's "unknown / not assigned" placeholder.)
-static const char* companyName(uint16_t id) {
-  switch (id) {
-    case 0x0002: return "Microsoft";
-    case 0x0005: return "Samsung";
-    case 0x004C: return "Apple";
-    case 0x0059: return "Nordic Semiconductor";
-    // Note: "Shenzhen Yichip", a chip vendor observed reusing brand PnP IDs in
-    // the wild, is intentionally NOT given a Company ID here because I could not
-    // verify its SIG assignation. If you need it, resolve the raw CID on the SIG
-    // list rather than trusting a hardcoded value.
-    default:     return nullptr;               // print raw CID; resolve on the SIG list
-  }
-}
-
-// Per-device state so we only re-report something when a device GAINS a new
-// field after it first appeared, instead of re-flooding the same line forever.
-struct DeviceState {
-  bool printedName = false;
-  bool printedMfg  = false;
-  bool printedSvc  = false;
-};
-
-std::map<std::string, DeviceState> g_state;      // keyed by LE address string
+// Per-address advertised-field state + session uniqueness.
+std::map<std::string, ble_recon::DeviceState> g_state;
+ble_recon::AddressRegistry g_registry;
 
 class AdvCB : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice d) override {
     std::string addr = d.getAddress().toString().c_str();
-    const bool isNew = g_state.find(addr) == g_state.end();
-    DeviceState &st = g_state[addr];
+    const bool isNew = g_registry.is_new(addr);
+    ble_recon::DeviceState &st = g_state[addr];
 
-    // Optional name filter.
+    // Optional name filter (case-insensitive substring on the advertised name,
+    // or the address when no name is advertised).
     if (NAME_FILTER[0] != '\0') {
       std::string name;
       if (d.haveName()) name = d.getName().c_str(); else name = addr;
-      std::string lc = name, lf = NAME_FILTER;
-      for (auto &c : lc) c = std::tolower((unsigned char)c);
-      for (auto &c : lf) c = std::tolower((unsigned char)c);
-      if (lc.find(lf) == std::string::npos) return;   // filtered out
+      if (!ble_recon::name_matches(name, NAME_FILTER)) return;  // filtered out
     }
 
     const bool hasName = d.haveName();
-    const bool haveMfg = d.haveManufacturerData();
-    const bool showName = isNew || (hasName && !st.printedName);
-    const bool showMfg  = isNew || (haveMfg && !st.printedMfg);
-    const bool showSvc  = isNew || (d.getServiceUUIDCount() > 0 && !st.printedSvc);
-    if (!(showName || showMfg || showSvc)) return;      // nothing new to report
+    const bool hasMfg  = d.haveManufacturerData();
+    const bool hasSvc  = d.getServiceUUIDCount() > 0;
+
+    ble_recon::PrintDecision p =
+        ble_recon::decide(isNew, hasName, hasMfg, hasSvc, st);
+    if (!p.show) return;  // nothing new to report
 
     Serial.printf("%lu ms  RSSI %d%s  %s",
                   (unsigned long)millis(), d.getRSSI(),
                   (isNew ? "  **NEW**" : ""), addr.c_str());
 
-    if (showName && hasName) {
+    if (p.showName && hasName) {
       Serial.printf("  [name: %s]", d.getName().c_str());
-      st.printedName = true;
     }
-    if (showMfg && haveMfg) {
+    if (p.showMfg && hasMfg) {
       std::string m = d.getManufacturerData();
       Serial.printf("  mfg[%d]:", (int)m.length());
       for (size_t i = 0; i < m.length(); i++)
         Serial.printf(" %02X", (uint8_t)m[i]);
       if (m.length() >= 2) {
-        uint16_t cid = (uint16_t)(((uint8_t)m[1] << 8) | (uint8_t)m[0]);
-        const char *cn = companyName(cid);
+        uint16_t cid = ble_recon::company_id_from_mfg(
+            reinterpret_cast<const uint8_t*>(m.data()), m.length());
+        const char *cn = ble_recon::company_id_name(cid);
         if (cn) Serial.printf("  [%s]", cn);
         else    Serial.printf("  [CID 0x%04X]", cid);
       }
-      st.printedMfg = true;
     }
-    if (showSvc && d.getServiceUUIDCount()) {
+    if (p.showSvc && d.getServiceUUIDCount()) {
       Serial.print("  svc:");
       for (int i = 0; i < d.getServiceUUIDCount(); i++)
         Serial.printf(" %s", d.getServiceUUID(i).toString().c_str());
-      st.printedSvc = true;
     }
     Serial.println();
   }
@@ -141,6 +120,6 @@ void loop() {
   // Blocking 10s window, repeated forever so you can power-cycle the keyboard.
   BLEScanResults r = pScan->start(10, false);
   Serial.printf("--- window done: %d adverts this window, %d unique this session ---\n",
-                r.getCount(), (int)g_state.size());
+                r.getCount(), (int)g_registry.unique_count());
   delay(200);
 }

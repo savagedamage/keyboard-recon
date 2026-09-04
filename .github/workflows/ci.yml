@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-and-test:
+    name: Build firmware & run logic tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PlatformIO
+        run: pip install platformio
+
+      - name: Build firmware (ESP32-S3)
+        # Explicit env: platformio.ini defines two envs (esp32-s3-devkitc-1 + native),
+        # so a bare `pio run` would build both. We only want the firmware env here.
+        run: pio run -e esp32-s3-devkitc-1
+
+      - name: Run logic tests (native / Unity)
+        run: pio test -e native
+
+      - name: Upload firmware binaries
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: firmware-binaries
+          path: |
+            .pio/build/esp32-s3-devkitc-1/firmware.bin
+            .pio/build/esp32-s3-devkitc-1/firmware.elf
+          if-no-files-found: warn
+
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### Build & test summary"
+            echo "Firmware env: \`esp32-s3-devkitc-1\`"
+            echo "Test env: \`native\` (Unity)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+# Shield badge (paste into README.md):
+# ![CI](https://github.com/OWNER/keyboard-recon/actions/workflows/ci.yml/badge.svg)
