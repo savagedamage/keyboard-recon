@@ -126,6 +126,47 @@ void test_registry_is_new_and_unique_count() {
   TEST_ASSERT_EQUAL_UINT32(2u, reg.unique_count());
 }
 
+// --- format_observation ------------------------------------------------------
+void test_format_observation_full_line() {
+  std::vector<uint8_t> mfg = {0x02,0,0,0,0,0,0,0,0,0};  // Microsoft = 0x0002
+  std::vector<std::string> svcs = {"1812"};
+  std::string line = format_observation(3631, -59, "D6:7E:3A:9B:12:40",
+                                        true, "XZ-7 Keyboard", mfg, svcs);
+  TEST_ASSERT_EQUAL_STRING(
+      "    3631 ms  RSSI  -59  **NEW**  D6:7E:3A:9B:12:40"
+      "  [name: XZ-7 Keyboard]  mfg[10]: 02 00 00 00 00 00 00 00 00 00"
+      "  [Microsoft]  svc: 1812",
+      line.c_str());
+}
+
+void test_format_observation_bare_new() {
+  // A fresh address with no name / mfg / svc still gets a line (just the frame).
+  std::string line = format_observation(42, -100, "AA:BB:CC:DD:EE:FF",
+                                        true, "", {}, {});
+  TEST_ASSERT_EQUAL_STRING(
+      "      42 ms  RSSI -100  **NEW**  AA:BB:CC:DD:EE:FF",
+      line.c_str());
+}
+
+void test_format_observation_unknown_cid() {
+  // {0x34,0x12} -> CID 0x1234, not decoded -> raw CID printed.
+  std::vector<uint8_t> mfg = {0x34, 0x12};
+  std::string line = format_observation(0, 0, "01:02:03:04:05:06",
+                                        false, "", mfg, {});
+  TEST_ASSERT_EQUAL_STRING(
+      "       0 ms  RSSI    0  01:02:03:04:05:06"
+      "  mfg[2]: 34 12  [CID 0x1234]",
+      line.c_str());
+}
+
+// --- format_window_summary ---------------------------------------------------
+void test_format_window_summary() {
+  std::string s = format_window_summary(42, 3);
+  TEST_ASSERT_EQUAL_STRING(
+      "--- window done: 42 adverts this window, 3 unique this session ---",
+      s.c_str());
+}
+
 int main() {
   UNITY_BEGIN();
   RUN_TEST(test_company_id_short_returns_unknown);
@@ -139,5 +180,9 @@ int main() {
   RUN_TEST(test_decide_unchanged_device_not_reported);
   RUN_TEST(test_decide_gains_name_after_first_sighting);
   RUN_TEST(test_registry_is_new_and_unique_count);
+  RUN_TEST(test_format_observation_full_line);
+  RUN_TEST(test_format_observation_bare_new);
+  RUN_TEST(test_format_observation_unknown_cid);
+  RUN_TEST(test_format_window_summary);
   return UNITY_END();
 }

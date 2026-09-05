@@ -25,12 +25,10 @@
 //
 // State: kept only in RAM. A reset clears the "seen" set, so a fresh keyboard
 // powers on and gets flagged [NEW] again.
-// ---------------------------------------------------------------------------
 //
-// All decision logic (Company ID decode, name filtering, what/when to report,
-// per-address state, per-session uniqueness) lives in include/ble_logic.hpp as
-// pure C++ so it can be unit-tested on a host. This sketch is a thin BLE-callback
-// shell: it gathers the advertisement fields and calls ble_recon, then prints.
+// All decision + formatting logic lives in include/ble_logic.hpp as pure C++ so
+// it can be unit-tested on a host. This sketch is a thin BLE-callback shell: it
+// gathers the advertisement fields, calls ble_recon, and prints what it returns.
 // ---------------------------------------------------------------------------
 
 #include <BLEDevice.h>
@@ -38,6 +36,7 @@
 #include <BLEAdvertisedDevice.h>
 #include <map>
 #include <string>
+#include <vector>
 
 #include "ble_logic.hpp"
 
@@ -71,32 +70,22 @@ class AdvCB : public BLEAdvertisedDeviceCallbacks {
         ble_recon::decide(isNew, hasName, hasMfg, hasSvc, st);
     if (!p.show) return;  // nothing new to report
 
-    Serial.printf("%lu ms  RSSI %d%s  %s",
-                  (unsigned long)millis(), d.getRSSI(),
-                  (isNew ? "  **NEW**" : ""), addr.c_str());
-
-    if (p.showName && hasName) {
-      Serial.printf("  [name: %s]", d.getName().c_str());
+    // Gather only the fields we decided to show, then build one line.
+    std::string name;
+    std::vector<uint8_t> mfg;
+    std::vector<std::string> svcs;
+    if (p.showName && hasName) name = d.getName().c_str();
+    if (p.showMfg  && hasMfg) {
+      std::string md = d.getManufacturerData();
+      mfg.assign(md.begin(), md.end());
     }
-    if (p.showMfg && hasMfg) {
-      std::string m = d.getManufacturerData();
-      Serial.printf("  mfg[%d]:", (int)m.length());
-      for (size_t i = 0; i < m.length(); i++)
-        Serial.printf(" %02X", (uint8_t)m[i]);
-      if (m.length() >= 2) {
-        uint16_t cid = ble_recon::company_id_from_mfg(
-            reinterpret_cast<const uint8_t*>(m.data()), m.length());
-        const char *cn = ble_recon::company_id_name(cid);
-        if (cn) Serial.printf("  [%s]", cn);
-        else    Serial.printf("  [CID 0x%04X]", cid);
-      }
-    }
-    if (p.showSvc && d.getServiceUUIDCount()) {
-      Serial.print("  svc:");
+    if (p.showSvc  && hasSvc) {
       for (int i = 0; i < d.getServiceUUIDCount(); i++)
-        Serial.printf(" %s", d.getServiceUUID(i).toString().c_str());
+        svcs.push_back(d.getServiceUUID(i).toString().c_str());
     }
-    Serial.println();
+
+    Serial.println(ble_recon::format_observation(
+        (uint32_t)millis(), d.getRSSI(), addr, isNew, name, mfg, svcs).c_str());
   }
 };
 
@@ -111,15 +100,21 @@ void setup() {
   pScan->setActiveScan(true);     // request scan responses (gets name / extra data)
   pScan->setInterval(100);
   pScan->setWindow(99);
-  Serial.println("BLE identity scan running (passive). Power on the keyboard.");
-  if (NAME_FILTER[0] != '\0')
-    Serial.printf("  filter: *%s*\n", NAME_FILTER);
+
+  Serial.println();
+  Serial.println("=== Keyboard Recon — BLE identity scanner ===");
+  Serial.println("Passive BLE observation: never pairs, connects, or writes.");
+  Serial.println("ESP32-S3 is BLE-only (no Classic BT).");
+  Serial.print  ("Name filter: ");
+  Serial.println(NAME_FILTER[0] != '\0' ? NAME_FILTER : "none (seeing all devices)");
+  Serial.println("Power on the keyboard and watch its advertised identity stream below.");
+  Serial.println();
 }
 
 void loop() {
   // Blocking 10s window, repeated forever so you can power-cycle the keyboard.
   BLEScanResults r = pScan->start(10, false);
-  Serial.printf("--- window done: %d adverts this window, %d unique this session ---\n",
-                r.getCount(), (int)g_registry.unique_count());
+  Serial.println(ble_recon::format_window_summary(
+      r.getCount(), (std::size_t)g_registry.unique_count()).c_str());
   delay(200);
 }

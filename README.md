@@ -13,19 +13,59 @@ keyboard (or any BLE device) advertises when it powers on — so you can answer
 
 It is the **first-stage reconnaissance** step of a broader peripheral-analysis
 workflow. It never pairs, connects, reads GATT, or writes anything; it only
-listens to advertisements already on the air. Once you have the advertised
-identity, take the host-side follow-up with the companion
-[`keyboard-security-analysis`](https://github.com/savagedamage/hid-security-research)
-methodology (GATT tree, PnP ID vs manufacturer-name spoof check, idle-injection
-test).
+listens to advertisements already on the air.
 
-> **Current status: alpha firmware.** The decision logic in
-> [`include/ble_logic.hpp`](include/ble_logic.hpp) is pure, host-testable C++
-> covered by a native unit-test suite, and the full firmware build plus those
-> tests run in GitHub Actions CI (see [Build and CI](#build-and-ci)). The ESP32
-> sketch (`src/ble_scanner.ino`) targets the standard Arduino BLE API and is
-> compiled by CI for the `esp32-s3-devkitc-1` board; confirm it flashes on your
-> own hardware. See [Hardware scope and limits](#hardware-scope-and-limits).
+## How it works
+
+![Architecture](docs/architecture.svg)
+
+The pipeline is intentionally small and layered so each piece is easy to
+understand and to test:
+
+```text
+BLE keyboard ──▶ ESP32-S3 (passive BLE scan) ──▶ ble_recon logic (pure C++) ──▶ Serial 115200
+                    10 s windows                    decide · decode · format        clean stream
+                                                                                        │
+                                                                                        └──▶ Host analysis (btmon / GATT / PnP-id spoof check)
+```
+
+All the decision and formatting logic lives in [`include/ble_logic.hpp`](include/ble_logic.hpp)
+as standard C++ with no hardware dependency, so it runs as an ordinary host unit
+test. The sketch in `src/ble_scanner.ino` is just a thin BLE-callback shell that
+gathers the advertisement fields and prints what `ble_recon` returns.
+
+## Sample session
+
+This is the exact line format the firmware emits (opened on a serial monitor at
+115200, keyboard powered on mid-scan):
+
+```text
+=== Keyboard Recon — BLE identity scanner ===
+Passive BLE observation: never pairs, connects, or writes.
+ESP32-S3 is BLE-only (no Classic BT).
+Name filter: none (seeing all devices)
+Power on the keyboard and watch its advertised identity stream below.
+
+    3631 ms  RSSI  -59  **NEW**  D6:7E:3A:9B:12:40  [name: XZ-7 Keyboard]  mfg[10]: 02 00 00 00 00 00 00 00 00 00  [Microsoft]  svc: 1812
+--- window done: 42 adverts this window, 3 unique this session ---
+```
+
+Lines are fixed-width so the live stream stays scannable when several devices
+appear at once. Read the [field reference](#reading-the-output) below.
+
+## Project layout
+
+The code is split between the hardware shell and the tested logic so the parts
+that matter are verifiable without flashing anything:
+
+```text
+include/ble_logic.hpp     pure C++: Company ID decode, name filter, decide, format
+src/ble_scanner.ino       ESP32-S3 BLE-callback shell (the sketch you flash)
+test/test_ble_logic/      host-native unit tests (Unity)
+.github/workflows/ci.yml  builds the firmware + runs the tests in the cloud
+docs/architecture.svg     this diagram
+platformio.ini            [env:esp32-s3-devkitc-1] (firmware) + [env:native] (tests)
+```
 
 ## Why this exists
 
@@ -67,19 +107,15 @@ pio device monitor  # serial @ 115200
 pio test -e native  # run the host-native logic unit tests (Unity)
 ```
 
-The firmware sketch (`src/ble_scanner.ino`) and the pure logic
-(`include/ble_logic.hpp`) are built and tested in GitHub Actions CI — see the
+The firmware build and the unit tests both run in GitHub Actions CI — see the
 badge above. The logic is decoupled from the BLE/hardware layer so it runs as an
-ordinary host test; the ESP32 build is verified in CI because PlatformIO's tool
-package mirror was unreachable from the authoring environment.
-
-Then power on the keyboard and watch the stream. Each window ends with a summary
-line (`adverts this window` / `unique this session`).
+ordinary host test (no board needed); the ESP32 build is verified in CI because
+PlatformIO's tool package mirror was unreachable from the authoring environment.
 
 ## Reading the output
 
-```
- 3631 ms  RSSI -59  **NEW**  D6:7E:3A:9B:12:40  [name: XZ-7 Keyboard]  mfg[10]: 02 00 00 00 00 00 00 00 00 00  [Microsoft]  svc: 1812
+```text
+    3631 ms  RSSI  -59  **NEW**  D6:7E:3A:9B:12:40  [name: XZ-7 Keyboard]  mfg[10]: 02 00 00 00 00 00 00 00 00 00  [Microsoft]  svc: 1812
 ```
 
 - **`**NEW**`** — first time this address appeared since power-on/reset.
@@ -122,8 +158,7 @@ to enumerate declared HID capabilities, and an idle-injection test to distinguis
 an actual covert keyboard from a normal-looking one. That methodology, its
 capture discipline, and its evidence-preservation rules live in the
 [`hid-security-research`](https://github.com/savagedamage/hid-security-research)
-repo — this firmware feeds it. The related `keyboard-security-analysis` workflow
-covers packet-level capture and the malicious/benign idle-injection test.
+repo — this firmware feeds it.
 
 ## Scope of use
 
@@ -131,6 +166,31 @@ An observation tool for radios and devices in the physical environment. Listen
 only to what is already being transmitted, and use the readout to describe and
 investigate hardware you can physically account for. Keep the result as recorded
 observations plus a clear audit trail — not as a premise for an escalated exploit.
+
+## Contributing
+
+Contributions are welcome! This is a small, focused tool and a genuinely friendly
+place to learn BLE and defensive-hardware work without a big commitment. The
+things that help most:
+
+- more decoded SIG **Company IDs**, each with a source you can point to;
+- a **Classic-BT or 2.4 GHz** capture path or a companion sketch;
+- better **host-side integration** (e.g. feeding a `bluetoothctl`/GATT workflow);
+- more **edge-case unit tests** for `ble_logic.hpp`.
+
+Open an issue or a pull request — issues are a good way to propose a feature
+before writing code. Everything here is public and MIT-licensed.
+
+This is one of the open tools behind [Cormorant Cyber](https://cormorantcyber.com),
+an Android/mobile-focused security research and tooling effort (site still in the
+works). If you build something similar and want it listed, feel free to link it.
+
+## Related projects
+
+- [HID Security Research](https://github.com/savagedamage/hid-security-research) — the companion defensive HID/keyboard methodology, threat model, and the `keyboard-security-analysis` workflow this firmware feeds.
+- [Awesome HID Security](https://github.com/savagedamage/awesome-hid-security) — a curated list of tools, hardware, payloads, and defenses for HID/keyboard security.
+- [Android Security Wizard](https://github.com/savagedamage/android-security-wizard) — a mobile-security research corpus (native RE, Shizuku, rooting, malware detection).
+- [Pentest Bluestack Toolkit](https://github.com/savagedamage/pentest-bluestack-toolkit) — multi-platform penetration-testing and blue-team tooling.
 
 ## License
 

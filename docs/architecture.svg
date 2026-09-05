@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1240" height="340" viewBox="0 0 1240 340" role="img" aria-labelledby="desc">
+  <title>Keyboard Recon architecture</title>
+  <desc>Passive BLE identity scanner pipeline: a keyboard is observed by an ESP32-S3 using read-only BLE scans; the pure ble_recon logic decides what changed and formats a clean line; it streams over serial for host analysis.</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0d1117"/>
+      <stop offset="1" stop-color="#0a0e14"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="1240" height="340" fill="url(#bg)"/>
+  <text x="40" y="40" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="20" font-weight="700" fill="#e6edf3">Keyboard Recon — read-only BLE identity scanner</text>
+  <text x="40" y="66" font-family="ui-monospace, monospace" font-size="13" fill="#8b949e">Passive observation: never pairs, connects, or writes. ESP32-S3 is BLE-only (no Classic BT).</text>
+
+  <!-- nodes -->
+  <g font-family="ui-monospace, monospace" text-anchor="middle">
+    <!-- 1 keyboard -->
+    <rect x="40"  y="120" width="200" height="96" rx="10" fill="#161b22" stroke="#58a6ff" stroke-width="1.5"/>
+    <text x="140" y="150" font-size="15" font-weight="700" fill="#58a6ff">BLE keyboard</text>
+    <text x="140" y="172" font-size="13" fill="#c9d1d9">advertises name,</text>
+    <text x="140" y="190" font-size="13" fill="#c9d1d9">addr, mfg, svc</text>
+
+    <!-- 2 esp32 -->
+    <rect x="270" y="120" width="200" height="96" rx="10" fill="#161b22" stroke="#a371f7" stroke-width="1.5"/>
+    <text x="370" y="150" font-size="15" font-weight="700" fill="#a371f7">ESP32-S3</text>
+    <text x="370" y="172" font-size="13" fill="#c9d1d9">passive BLE scan</text>
+    <text x="370" y="190" font-size="13" fill="#c9d1d9">10 s windows</text>
+
+    <!-- 3 logic -->
+    <rect x="500" y="120" width="200" height="96" rx="10" fill="#161b22" stroke="#3fb950" stroke-width="1.5"/>
+    <text x="600" y="150" font-size="15" font-weight="700" fill="#3fb950">ble_recon logic</text>
+    <text x="600" y="172" font-size="13" fill="#c9d1d9">decide · decode · format</text>
+    <text x="600" y="190" font-size="12" fill="#8b949e">pure C++, host-tested</text>
+
+    <!-- 4 serial -->
+    <rect x="730" y="120" width="200" height="96" rx="10" fill="#161b22" stroke="#f0883e" stroke-width="1.5"/>
+    <text x="830" y="150" font-size="15" font-weight="700" fill="#f0883e">Serial 115200</text>
+    <text x="830" y="172" font-size="13" fill="#c9d1d9">clean, fixed-width</text>
+    <text x="830" y="190" font-size="13" fill="#c9d1d9">line per report</text>
+
+    <!-- 5 host -->
+    <rect x="960" y="120" width="200" height="96" rx="10" fill="#161b22" stroke="#d2a8ff" stroke-width="1.5"/>
+    <text x="1060" y="150" font-size="15" font-weight="700" fill="#d2a8ff">Host analysis</text>
+    <text x="1060" y="172" font-size="13" fill="#c9d1d9">btmon / GATT tree</text>
+    <text x="1060" y="190" font-size="13" fill="#c9d1d9">PnP-id spoof check</text>
+  </g>
+
+  <!-- arrows -->
+  <g stroke="#30363d" stroke-width="2" fill="none" marker-end="url(#arrow)">
+    <line x1="240" y1="168" x2="270" y2="168"/>
+    <line x1="470" y1="168" x2="500" y2="168"/>
+    <line x1="700" y1="168" x2="730" y2="168"/>
+    <line x1="930" y1="168" x2="960" y2="168"/>
+  </g>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="7" refY="4.5" orient="auto">
+      <path d="M0,0 L9,4.5 L0,9 z" fill="#30363d"/>
+    </marker>
+  </defs>
+
+  <!-- bottom note -->
+  <rect x="40" y="252" width="1120" height="54" rx="8" fill="#161b22" stroke="#21262d" stroke-width="1"/>
+  <text x="60" y="276" font-family="ui-monospace, monospace" font-size="13" fill="#c9d1d9">De-scoped by hardware:</text>
+  <text x="60" y="296" font-family="ui-monospace, monospace" font-size="13" fill="#8b949e">ESP32-S3 has no Classic BR/EDR radio, and proprietary 2.4 GHz / tri-mode keyboards are out of scope for this BLE tool.</text>
+</svg>

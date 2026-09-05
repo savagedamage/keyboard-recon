@@ -13,8 +13,10 @@
 #include <cstddef>
 #include <cstdint>
 #include <cctype>
+#include <cstdio>
 #include <set>
 #include <string>
+#include <vector>
 
 namespace ble_recon {
 
@@ -113,5 +115,53 @@ class AddressRegistry {
  private:
   std::set<std::string> seen_;
 };
+
+// Build the full, human-readable observation line emitted per report. Keeping
+// this in the header (instead of the sketch) is what makes the on-screen output
+// deterministic and unit-testable. `name` is the advertised name (empty if
+// none), `mfg` the raw manufacturer-data bytes (empty if none), `svcs` the
+// advertised GATT service UUIDs (empty if none). The frame is fixed-width so
+// the live stream stays scannable when many devices appear.
+inline std::string format_observation(uint32_t ms, int rssi,
+    const std::string& addr, bool isNew, const std::string& name,
+    const std::vector<uint8_t>& mfg, const std::vector<std::string>& svcs) {
+  char head[96];
+  std::snprintf(head, sizeof(head), "%8lu ms  RSSI %4d%s  %s",
+                (unsigned long)ms, rssi, isNew ? "  **NEW**" : "", addr.c_str());
+  std::string out(head);
+  if (!name.empty()) { out += "  [name: "; out += name; out += "]"; }
+  if (!mfg.empty()) {
+    out += "  mfg[" + std::to_string(mfg.size()) + "]:";
+    char b[6];
+    for (uint8_t byte : mfg) {
+      std::snprintf(b, sizeof(b), " %02X", (unsigned)byte);
+      out += b;
+    }
+    uint16_t cid = company_id_from_mfg(mfg.data(), mfg.size());
+    const char* cn = company_id_name(cid);
+    if (cn) { out += "  ["; out += cn; out += "]"; }
+    else {
+      char cidb[24];
+      std::snprintf(cidb, sizeof(cidb), "  [CID 0x%04X]", cid);
+      out += cidb;
+    }
+  }
+  if (!svcs.empty()) {
+    out += "  svc:";
+    for (const auto& svc : svcs) { out += " "; out += svc; }
+  }
+  return out;
+}
+
+// The line printed at the end of each 10 s scan window. `adverts` is the number
+// of advertisements seen in that window, `unique` the distinct addresses seen
+// so far this session.
+inline std::string format_window_summary(int adverts, std::size_t unique) {
+  char b[160];
+  std::snprintf(b, sizeof(b),
+                "--- window done: %d adverts this window, %zu unique this session ---",
+                adverts, unique);
+  return b;
+}
 
 }  // namespace ble_recon
